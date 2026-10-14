@@ -36,11 +36,12 @@ teardown removes them. Check that none of them exists before you start:
 ```sh
 id approver
 getent group gryph-admins
-ls -d /etc/safedep/gryph /opt/safedep/gryph /usr/bin/gryph
+ls -d /etc/safedep/gryph /opt/safedep/gryph /usr/bin/gryph /root/gryph-test
 ```
 
 Each command must report that the name does not exist. If an account or a
-group exists, use another name in every step. If Gryph is already
+group exists, use another name in every step. If `/root/gryph-test`
+exists, use another directory for the input files in steps 3, 4 and 10. If Gryph is already
 installed from a package, skip step 1 and keep the package files in the
 teardown.
 

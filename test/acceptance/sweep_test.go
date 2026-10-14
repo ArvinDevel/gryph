@@ -4,6 +4,7 @@ package acceptance
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"os/user"
@@ -96,11 +97,15 @@ func sweepTargets() ([]string, error) {
 
 // run removes what the script left. testscript calls it before it stops
 // the background commands of the script, so it stops the decision service
-// of the script first: a running service could write its state again.
+// of the script first: a running service could write its state again. A
+// cleanup that fails fails the script, so the report names the script that
+// leaves the host dirty for the next one.
 func (s *sweep) run(t testscript.T) {
-	var removed []string
-	if _, err := os.Stat(sweepPIDFile); err == nil {
-		s.exec(t, s.bin, "supervisor", "stop", "--pid-file", sweepPIDFile)
+	var removed, failed []string
+	if _, err := os.Stat(sweepPIDFile); err == nil && !s.kept[filepath.Dir(sweepPIDFile)] {
+		if err := s.exec(s.bin, "supervisor", "stop", "--pid-file", sweepPIDFile); err != nil {
+			failed = append(failed, err.Error())
+		}
 	}
 	for _, a := range sweepAccounts {
 		if s.kept["account:"+a] {
@@ -109,8 +114,16 @@ func (s *sweep) run(t testscript.T) {
 		if _, err := user.Lookup(a); err != nil {
 			continue
 		}
-		s.exec(t, "pkill", "-KILL", "-u", a)
-		s.exec(t, "userdel", "-r", "-f", a)
+		if err := s.exec("pkill", "-KILL", "-u", a); err != nil {
+			failed = append(failed, err.Error())
+		}
+		if err := s.exec("userdel", "-r", "-f", a); err != nil {
+			failed = append(failed, err.Error())
+		}
+		if _, err := user.Lookup(a); err == nil {
+			failed = append(failed, "account "+a+" still exists")
+			continue
+		}
 		removed = append(removed, "account "+a)
 	}
 	for _, g := range sweepGroups {
@@ -120,12 +133,15 @@ func (s *sweep) run(t testscript.T) {
 		if _, err := user.LookupGroup(g); err != nil {
 			continue
 		}
-		s.exec(t, "groupdel", g)
+		if err := s.exec("groupdel", g); err != nil {
+			failed = append(failed, err.Error())
+			continue
+		}
 		removed = append(removed, "group "+g)
 	}
 	paths, err := sweepTargets()
 	if err != nil {
-		t.Log("sweep: " + err.Error())
+		failed = append(failed, err.Error())
 	}
 	for _, p := range paths {
 		if s.kept[p] {
@@ -135,7 +151,7 @@ func (s *sweep) run(t testscript.T) {
 			continue
 		}
 		if err := os.RemoveAll(p); err != nil {
-			t.Log("sweep: " + err.Error())
+			failed = append(failed, err.Error())
 			continue
 		}
 		removed = append(removed, p)
@@ -151,15 +167,18 @@ func (s *sweep) run(t testscript.T) {
 	if len(removed) > 0 {
 		t.Log("sweep: the script left " + strings.Join(removed, ", "))
 	}
+	if len(failed) > 0 {
+		t.Fatal("sweep: cleanup failed, the next script can find a dirty host: " + strings.Join(failed, "; "))
+	}
 }
 
 // exec runs one cleanup command. pkill exits 1 when no process matched,
 // which is the normal case.
-func (s *sweep) exec(t testscript.T, name string, args ...string) {
+func (s *sweep) exec(name string, args ...string) error {
 	out, err := exec.Command(name, args...).CombinedOutput()
 	var ee *exec.ExitError
 	if err == nil || (name == "pkill" && errors.As(err, &ee) && ee.ExitCode() == 1) {
-		return
+		return nil
 	}
-	t.Log("sweep: " + name + " " + strings.Join(args, " ") + ": " + err.Error() + ": " + strings.TrimSpace(string(out)))
+	return fmt.Errorf("%s %s: %w: %s", name, strings.Join(args, " "), err, strings.TrimSpace(string(out)))
 }

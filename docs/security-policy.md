@@ -752,7 +752,7 @@ $ gryph policy approve watch
 
 The decision service checks every answer against the peer credentials of the connection, never against a field of the command:
 
-- The account must be in the group. The service checks the primary and supplementary groups of the account in the OS group database. It keeps the result for an account for 30 seconds, and checks again at the next answer after that time. A group with no members accepts no answer.
+- The account must be in the group. The service checks the primary and supplementary groups of the account in the OS group database. It keeps the result for an account for 30 seconds, and checks again at the next answer after that time. A group with no members accepts no answer. On Windows the service cannot read group membership, so no account answers on this channel.
 - `gryph doctor --managed` reads the configuration, not the group database. It reports `no approver channel` only when both conditions are true:
   - No `local-admin` or `self-elevated` channel in `channels` has a group.
   - `channels` holds neither `local-auth` nor `out-of-band`.
