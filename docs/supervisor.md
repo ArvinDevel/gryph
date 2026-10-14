@@ -73,8 +73,9 @@ the hook at a service of its own.
 | `supervisor.fanotify.state_file` | `fanotify.json` next to the socket | Where the watcher reports what it protects. |
 
 `gryph doctor --managed --json` reports the profile of the service, the
-key scope and whether the host has an approver channel. `gryph doctor`
-for a user shows the socket, the profile and the time a pilot has left.
+key scope and whether the managed configuration names an approver
+channel. `gryph doctor` for a user shows the socket, the profile and the
+time a pilot has left.
 
 ## Fail modes
 
