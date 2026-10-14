@@ -49,6 +49,9 @@ starts the socket, waits for the service to answer, and only then writes
 the switch on. A service that does not answer leaves the switch off, so a
 rollout cannot block the agents of a host.
 
+To try the service and an approval on one Linux host, follow
+[Try the decision service on a Linux host](./supervisor-linux.md).
+
 Only the managed file sets these keys. A user configuration cannot point
 the hook at a service of its own.
 
@@ -70,8 +73,9 @@ the hook at a service of its own.
 | `supervisor.fanotify.state_file` | `fanotify.json` next to the socket | Where the watcher reports what it protects. |
 
 `gryph doctor --managed --json` reports the profile of the service, the
-key scope and whether the host has an approver channel. `gryph doctor`
-for a user shows the socket, the profile and the time a pilot has left.
+key scope and whether the managed configuration names an approver
+channel. `gryph doctor` for a user shows the socket, the profile and the
+time a pilot has left.
 
 ## Fail modes
 

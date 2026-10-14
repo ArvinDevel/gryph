@@ -81,12 +81,21 @@ func TestAcceptance(t *testing.T) {
 	}
 	sort.Strings(dirs)
 
+	var sw *sweep
+	if privileged() {
+		sw, err = newSweep(bin)
+		require.NoError(t, err)
+	}
+
 	for _, relDir := range dirs {
 		relDir, scripts := relDir, byDir[relDir]
 		t.Run(relDir, func(t *testing.T) {
 			testscript.Run(t, testscript.Params{
 				Files: scripts,
 				Setup: func(env *testscript.Env) error {
+					if sw != nil {
+						env.Defer(func() { sw.run(env.T()) })
+					}
 					env.Setenv("PATH", binDir+string(os.PathListSeparator)+env.Getenv("PATH"))
 					env.Setenv("ACCEPTANCE_TESTDATA", testdata)
 					env.Setenv("ACCEPTANCE_EXAMPLES", examples)
@@ -123,7 +132,7 @@ func TestAcceptance(t *testing.T) {
 				Condition: func(cond string) (bool, error) {
 					switch cond {
 					case "privileged":
-						return os.Getenv("ACCEPTANCE_PRIVILEGED") != "" && os.Geteuid() == 0, nil
+						return privileged(), nil
 					case "polkit":
 						// polkit answers on the system bus, and pkttyagent
 						// asks on a terminal. A host without either skips the
@@ -346,4 +355,10 @@ func polkitAvailable() bool {
 		}
 	}
 	return exec.Command("pkcheck", "--version").Run() == nil
+}
+
+// privileged is true in the privileged job: root, and ACCEPTANCE_PRIVILEGED
+// set.
+func privileged() bool {
+	return os.Getenv("ACCEPTANCE_PRIVILEGED") != "" && os.Geteuid() == 0
 }

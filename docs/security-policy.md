@@ -752,7 +752,12 @@ $ gryph policy approve watch
 
 The decision service checks every answer against the peer credentials of the connection, never against a field of the command:
 
-- The account must be in the group. The group comes from the OS group database, primary and supplementary groups, and the service reads it again every 30 seconds. An empty group has no members, and `gryph doctor --managed` then reports `no approver channel`.
+- The account must be in the group. The service checks the primary and supplementary groups of the account in the OS group database. It keeps the result for an account for 30 seconds, and checks again at the next answer after that time. A group with no members accepts no answer. On Windows the service cannot read group membership, so no account answers on this channel.
+- `gryph doctor --managed` reads the configuration, not the group database. It reports `no approver channel` only when both conditions are true:
+  - No `local-admin` or `self-elevated` channel in `channels` has a group.
+  - `channels` holds neither `local-auth` nor `out-of-band`.
+
+  `same-user-tty` alone is not an approver channel.
 - The account that asked cannot answer its own request, whatever its groups.
 - The service compares the login identity of the process that asked with the one that answers (`loginuid` on Linux). The same identity, or none on either side, means the person who asked answers through another account, for example through `sudo`. That answer is `self-elevated`. The configuration refuses it unless `allow_self_elevated: true`, which lets it stand in for `local-admin`. The receipt still records `self-elevated`.
 - The first answer wins, by the clock of the service. A later answer is `superseded` and changes nothing. A deny is final.
