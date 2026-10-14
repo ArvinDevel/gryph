@@ -12,6 +12,7 @@ import (
 	"github.com/safedep/gryph/agent"
 	"github.com/safedep/gryph/config"
 	"github.com/safedep/gryph/engine"
+	"github.com/safedep/gryph/internal/testpath"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -30,9 +31,10 @@ func TestAdapters_InstallWritesOnlyDeclaredHookConfig(t *testing.T) {
 			require.NotEmpty(t, globs)
 
 			home := t.TempDir()
-			t.Setenv("HOME", home)
+			testpath.SetHome(t, home)
 			t.Setenv("PATH", fakeAgentBinDir(t))
 			require.NoError(t, os.MkdirAll(filepath.Join(home, "Applications", "Cursor.app"), 0o700))
+			fakeWindowsCursor(t)
 			for _, g := range globs {
 				require.NoError(t, os.MkdirAll(filepath.Join(home, configDirOf(g)), 0o700))
 			}
@@ -59,6 +61,17 @@ func fakeAgentBinDir(t *testing.T) string {
 		require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/sh\necho 0.0.0\n"), 0o700))
 	}
 	return dir
+}
+
+// fakeWindowsCursor puts a stand-in Cursor.exe where Windows detection
+// looks for it, outside the home, so the install scan does not see it.
+func fakeWindowsCursor(t *testing.T) {
+	t.Helper()
+	local := t.TempDir()
+	t.Setenv("LOCALAPPDATA", local)
+	dir := filepath.Join(local, "Programs", "cursor")
+	require.NoError(t, os.MkdirAll(dir, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "Cursor.exe"), nil, 0o600))
 }
 
 // configDirOf returns the directory part of a home glob before the first

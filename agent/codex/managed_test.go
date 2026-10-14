@@ -7,6 +7,7 @@ import (
 
 	"github.com/pelletier/go-toml/v2"
 	"github.com/safedep/gryph/agent"
+	"github.com/safedep/gryph/internal/testpath"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -27,7 +28,7 @@ type = "command"
 command = "/enterprise/hooks/check.py"
 timeout = 10
 `), 0o644))
-	opts := agent.ManagedInstallOptions{Command: "/opt/safedep/gryph/bin/gryph"}
+	opts := agent.ManagedInstallOptions{Command: testpath.Abs("/opt/safedep/gryph/bin/gryph")}
 
 	res, err := installManagedAt(path, opts)
 	require.NoError(t, err)
@@ -49,7 +50,7 @@ timeout = 10
 	assert.Equal(t, "^Bash$", pre[0]["matcher"])
 	assert.Equal(t, "*", pre[1]["matcher"])
 	gryph := agent.EntryList(pre[1]["hooks"])[0]
-	assert.Equal(t, "/opt/safedep/gryph/bin/gryph _hook codex PreToolUse", gryph["command"])
+	assert.Equal(t, testpath.Abs("/opt/safedep/gryph/bin/gryph")+" _hook codex PreToolUse", gryph["command"])
 	assert.Equal(t, int64(30), gryph["timeout"])
 	assert.Len(t, agent.EntryList(doc["hooks"].(map[string]any)["Stop"]), 1)
 
@@ -65,7 +66,7 @@ timeout = 10
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "allow_managed_hooks_only = true")
 
-	res, err = installManagedAt(path, agent.ManagedInstallOptions{Command: "/opt/other/gryph"})
+	res, err = installManagedAt(path, agent.ManagedInstallOptions{Command: testpath.Abs("/opt/other/gryph")})
 	require.NoError(t, err)
 	assert.True(t, res.Changed, "a new binary path replaces the Gryph entries")
 	data, err = os.ReadFile(path)
@@ -90,13 +91,13 @@ timeout = 10
 
 func TestManagedInstall_Codex_NewFileAndBadFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "codex", "requirements.toml")
-	res, err := installManagedAt(path, agent.ManagedInstallOptions{Command: "/opt/safedep/gryph/bin/gryph", DryRun: true})
+	res, err := installManagedAt(path, agent.ManagedInstallOptions{Command: testpath.Abs("/opt/safedep/gryph/bin/gryph"), DryRun: true})
 	require.NoError(t, err)
 	assert.True(t, res.Changed)
 	_, err = os.Stat(path)
 	assert.ErrorIs(t, err, os.ErrNotExist)
 
-	res, err = installManagedAt(path, agent.ManagedInstallOptions{Command: "/opt/safedep/gryph/bin/gryph"})
+	res, err = installManagedAt(path, agent.ManagedInstallOptions{Command: testpath.Abs("/opt/safedep/gryph/bin/gryph")})
 	require.NoError(t, err)
 	assert.True(t, res.Changed)
 	data, err := os.ReadFile(path)
@@ -109,7 +110,7 @@ func TestManagedInstall_Codex_NewFileAndBadFile(t *testing.T) {
 	assert.False(t, res.Changed)
 
 	require.NoError(t, os.WriteFile(path, []byte("= not toml"), 0o644))
-	_, err = installManagedAt(path, agent.ManagedInstallOptions{Command: "/opt/safedep/gryph/bin/gryph"})
+	_, err = installManagedAt(path, agent.ManagedInstallOptions{Command: testpath.Abs("/opt/safedep/gryph/bin/gryph")})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "does not parse")
 }

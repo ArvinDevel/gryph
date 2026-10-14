@@ -35,7 +35,7 @@ const readPayload = `{"session_id":"test-session-123","cwd":"/home/user/project"
 
 func startServer(t *testing.T, limits Limits) (string, string) {
 	t.Helper()
-	dir := t.TempDir()
+	dir := socketDir(t)
 	sock := filepath.Join(dir, "hook.sock")
 	ln, err := net.Listen("unix", sock)
 	require.NoError(t, err)
@@ -81,7 +81,7 @@ func startServerWithLimits(t *testing.T, cfg *config.Config, limits Limits) (*Se
 // hand. The paths and the version come from the test.
 func startServerWithOptions(t *testing.T, cfg *config.Config, opts Options) (*Server, string, string) {
 	t.Helper()
-	dir := t.TempDir()
+	dir := socketDir(t)
 	sock := filepath.Join(dir, "hook.sock")
 	ln, err := net.Listen("unix", sock)
 	require.NoError(t, err)
@@ -117,6 +117,22 @@ func startServerWithOptions(t *testing.T, cfg *config.Config, opts Options) (*Se
 	}, 5*time.Second, 10*time.Millisecond)
 	return srv, state, spoolDir
 }
+
+// socketDir is a short temporary directory for a test socket. A Unix
+// socket path holds at most 104 bytes on macOS, and t.TempDir adds the
+// name of the test to a long TMPDIR.
+func socketDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "gs")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
+}
+
+// testDialOptions gives the tests deadlines far above the ones of a hook.
+// A hook keeps its short deadlines for latency. A test only checks what the
+// service answers, and a loaded runner can take seconds to open a partition.
+var testDialOptions = ipc.DialOptions{Version: "test", Handshake: 30 * time.Second, Decision: 30 * time.Second}
 
 func dial(t *testing.T, sock string) net.Conn {
 	t.Helper()
@@ -239,7 +255,7 @@ func TestBucket(t *testing.T) {
 }
 
 func TestServer_StateDirectoryMustExist(t *testing.T) {
-	dir := t.TempDir()
+	dir := socketDir(t)
 	ln, err := net.Listen("unix", filepath.Join(dir, "hook.sock"))
 	require.NoError(t, err)
 	defer func() { _ = ln.Close() }()
@@ -393,7 +409,7 @@ func TestServer_ReadsComeFromTheOwnPartition(t *testing.T) {
 	_, state, _ := startServerWithLimits(t, cfg, Limits{MaxConns: 16, Rate: 1000, Burst: 1000, IdleTimeout: 30 * time.Second})
 	sock := filepath.Join(filepath.Dir(state), "hook.sock")
 
-	client, err := ipc.Dial(context.Background(), sock, ipc.DialOptions{Version: "test"})
+	client, err := ipc.Dial(context.Background(), sock, testDialOptions)
 	require.NoError(t, err)
 	defer func() { _ = client.Close() }()
 	reads := remote.New(client)
@@ -477,7 +493,7 @@ func TestServer_ImportsTheUsersRowsMarked(t *testing.T) {
 	cfg := config.Default()
 	_, state, _ := startServerWithLimits(t, cfg, Limits{MaxConns: 16, Rate: 1000, Burst: 1000, IdleTimeout: 30 * time.Second})
 	sock := filepath.Join(filepath.Dir(state), "hook.sock")
-	client, err := ipc.Dial(context.Background(), sock, ipc.DialOptions{Version: "test"})
+	client, err := ipc.Dial(context.Background(), sock, testDialOptions)
 	require.NoError(t, err)
 	defer func() { _ = client.Close() }()
 	ctx := context.Background()

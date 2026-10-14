@@ -5,6 +5,7 @@
 # privileged job on a Linux host with no managed state.
 [!privileged] skip 'needs ACCEPTANCE_PRIVILEGED=1 and root'
 [!linux] skip 'the managed paths of this script are the Linux ones'
+! exists /root/.local/share/safedep/gryph
 ! exists /etc/safedep/gryph
 ! exists /etc/gemini-cli
 env HOME=$WORK/home
@@ -27,6 +28,8 @@ stdout 'hook_config\s+gemini\s+detect\s+.*managed entry at /etc/gemini-cli/setti
 stdout 'drift: hooks not installed'
 
 exec rm -rf /etc/safedep/gryph /etc/gemini-cli
+exec rm -rf /root/.local/share/safedep/gryph
+exec rmdir --ignore-fail-on-non-empty /root/.local/share/safedep
 exec rm -rf /etc/systemd/user/gryph-reconcile.service /etc/systemd/user/gryph-reconcile.timer /etc/systemd/user/timers.target.wants/gryph-reconcile.timer
 exec rmdir --ignore-fail-on-non-empty /etc/safedep
 
