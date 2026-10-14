@@ -28,6 +28,22 @@ Install the packages:
 polkit starts on demand. `systemctl status polkit` can show `inactive`
 before the first request.
 
+## 0. Check that the test names are free
+
+The guide makes an account, a group and files with fixed names, and the
+teardown removes them. Check that none of them exists before you start:
+
+```sh
+id approver
+getent group gryph-admins
+ls -d /etc/safedep/gryph /opt/safedep/gryph /usr/bin/gryph
+```
+
+Each command must report that the name does not exist. If an account or a
+group exists, use another name in every step. If Gryph is already
+installed from a package, skip step 1 and keep the package files in the
+teardown.
+
 ## 1. Build and place the binary
 
 The managed install accepts only a binary on a path that root owns from
@@ -114,11 +130,16 @@ sudo gryph install --managed \
   --policy /root/gryph-test/policy.yaml --json
 ```
 
-The install writes `/etc/safedep/gryph/`, makes the `_gryph` service
-account, writes the systemd units and the polkit action file
-`/usr/share/polkit-1/actions/io.safedep.gryph.policy`, starts the socket,
-waits for the service to answer, and then turns the switch on. The report
-ends with `"status": "ok"`.
+The install does these steps in order:
+
+1. It writes the managed files to `/etc/safedep/gryph/`.
+2. It makes the `_gryph` service account.
+3. It writes the systemd units and the polkit action file
+   `/usr/share/polkit-1/actions/io.safedep.gryph.policy`.
+4. It starts the socket and waits for the service to answer.
+5. It turns the switch on.
+
+The report ends with `"status": "ok"`.
 
 ## 5. Check the install
 
@@ -235,8 +256,9 @@ reload by hand after an edit of `/etc/safedep/gryph/policy.yaml`:
 sudo systemctl reload gryph-supervisor
 ```
 
-The service reads the admin group again every 30 seconds. An account that
-you add to the group answers after that wait.
+The service keeps the group check of an account for 30 seconds. If an
+account tried to answer before you added it to the group, it can answer
+again after that time.
 
 ## When something does not work
 
@@ -249,13 +271,16 @@ sudo gryph doctor --managed --json
 | Symptom | Cause |
 |---|---|
 | The install exits 3 with a chain error | A file or a directory above the binary or the input files is not owned by root, or is writable by group or other. |
-| `no approver channel` in `gryph doctor --managed` | The managed configuration names no `policy.approval.local_admin.group`. |
+| `no approver channel` in `gryph doctor --managed` | The configuration names no `policy.approval.local_admin.group` for a `local-admin` or `self-elevated` channel, and turns on neither `local-auth` nor `out-of-band`. |
 | `... no password was given: ...` | `resolve` ran without a terminal and without a polkit agent. Run it on a terminal. |
 | `... the authority of the host stopped answering: ...` | polkit or the system bus stopped during the answer. |
 | `resolve` reports `(local-admin)`, not `(local-auth)` | The service found no polkit on the system bus and took the answer without a password. Start polkit and check the action file (step 5). |
 | The hook blocks every action with the service down | This is the `enforce` profile. See [fail modes](./supervisor.md#fail-modes). |
 
 ## Remove the test
+
+These commands remove only what this guide made, if step 0 found none of
+the names.
 
 ```sh
 sudo gryph uninstall --managed --purge --json
