@@ -102,7 +102,7 @@ func (s *SQLiteStore) createSchema(ctx context.Context) error {
 	const attempts = 5
 	var err error
 	for i := 0; i < attempts; i++ {
-		if err = s.client.Schema.Create(ctx); err == nil {
+		if err = s.migrate(ctx); err == nil {
 			if err = s.dropRetiredTables(ctx); err == nil {
 				return nil
 			}
@@ -117,6 +117,18 @@ func (s *SQLiteStore) createSchema(ctx context.Context) error {
 		}
 	}
 	return err
+}
+
+// migrateMu runs one ent migration at a time in the process. The migration
+// writes package-level table definitions, and the decision service opens
+// the stores of many accounts in parallel. A first open of an account
+// waits for the migrations of the others.
+var migrateMu sync.Mutex
+
+func (s *SQLiteStore) migrate(ctx context.Context) error {
+	migrateMu.Lock()
+	defer migrateMu.Unlock()
+	return s.client.Schema.Create(ctx)
 }
 
 func retryableSchemaError(err error) bool {

@@ -117,6 +117,13 @@ func (a Analysis) Changes() []Target {
 type Env struct {
 	WorkingDir string
 	Home       string
+	// Windows reads the command as a command of a Windows shell: a path
+	// can use backslashes or the Git Bash drive form /c/, and the analysis
+	// also scans the line for the paths of a PowerShell or cmd command.
+	Windows bool
+	// Vars are the path variables that the analysis expands besides HOME
+	// and PWD, keyed in upper case, with forward slashes.
+	Vars map[string]string
 }
 
 // Analyze returns the paths that command uses and the hosts it contacts.
@@ -143,7 +150,37 @@ func (w *walker) analyze(command string) Analysis {
 	if w.exhausted {
 		return Unbounded()
 	}
+	if w.env.Windows {
+		w.addWindowsScan(scanWindows(command, w.env))
+	}
 	return Analysis{Parsed: !w.failed, Targets: w.targets, Hosts: w.hosts, GryphHook: w.gryphHook, GryphResolve: w.gryphResolve}
+}
+
+// addWindowsScan adds what the scan of a Windows command line found. A
+// path that a known tool of the parser already uses keeps the parser's
+// access, so cat C:/x reads C:/x and does not change it. A removal stays,
+// because a delete command on the same line, as in cat C:/x; del C:/x, can
+// use the same path. A map removes the duplicates, because a long line can
+// name thousands of paths.
+func (w *walker) addWindowsScan(scan windowsScan) {
+	type operand struct{ path, glob string }
+	known := make(map[operand]bool, len(w.targets))
+	have := make(map[Target]bool, len(w.targets))
+	for _, t := range w.targets {
+		have[t] = true
+		if !t.Guess {
+			known[operand{t.Path, t.Glob}] = true
+		}
+	}
+	for _, t := range scan.targets {
+		if (known[operand{t.Path, t.Glob}] && t.Access != AccessRemove) || have[t] {
+			continue
+		}
+		have[t] = true
+		w.targets = append(w.targets, t)
+	}
+	w.gryphHook = w.gryphHook || scan.gryphHook
+	w.gryphResolve = w.gryphResolve || scan.gryphResolve
 }
 
 func (w *walker) exhaust() {
@@ -159,7 +196,26 @@ func AnalyzeCommand(command string, args []string, workingDir string) Analysis {
 	if line == "" {
 		return Analysis{Parsed: true}
 	}
-	return Analyze(line, Env{WorkingDir: filepath.ToSlash(workingDir), Home: HomeDir()})
+	env := hostEnv(workingDir)
+	env.Vars = folderVars()
+	return Analyze(line, env)
+}
+
+// hostEnv is the environment of a path on this host.
+func hostEnv(workingDir string) Env {
+	return Env{WorkingDir: filepath.ToSlash(workingDir), Home: HomeDir(), Windows: hostWindows}
+}
+
+// folderVars returns the folder variables of the host that the process
+// has, with forward slashes.
+func folderVars() map[string]string {
+	vars := map[string]string{}
+	for _, name := range hostFolderVars {
+		if v := os.Getenv(name); v != "" {
+			vars[name] = filepath.ToSlash(v)
+		}
+	}
+	return vars
 }
 
 // Unbounded is the analysis of a command that the walker could not finish.
@@ -207,7 +263,8 @@ func ResolvePath(p, workingDir string) string {
 	if p == "" {
 		return ""
 	}
-	return resolve(filepath.ToSlash(p), filepath.ToSlash(workingDir), HomeDir())
+	env := hostEnv(workingDir)
+	return resolve(env.native(filepath.ToSlash(p)), env.WorkingDir, env.Home)
 }
 
 // HomeDir returns the user's home directory with forward slashes, or an
@@ -865,9 +922,12 @@ func runsGryphResolve(args []string) bool {
 }
 
 // isGryphProgram reports whether a program word is gryph, or a word that
-// the walker cannot resolve, such as "$G".
+// the walker cannot resolve, such as "$G". The match ignores case and reads
+// a backslash as a separator, because Windows runs C:\Gryph\GRYPH.EXE as
+// the gryph program.
 func isGryphProgram(program string) bool {
-	return program == "" || strings.TrimSuffix(path.Base(program), ".exe") == "gryph"
+	base := path.Base(strings.ReplaceAll(program, `\`, "/"))
+	return program == "" || strings.TrimSuffix(strings.ToLower(base), ".exe") == "gryph"
 }
 
 func (w *walker) cd(args []string, cwds dirs) dirs {
@@ -880,7 +940,7 @@ func (w *walker) cd(args []string, cwds dirs) dirs {
 	}
 	out := make(dirs, 0, len(cwds))
 	for _, cwd := range cwds {
-		out = union(out, dirs{resolve(ops[0], cwd, w.env.Home)})
+		out = union(out, dirs{w.resolve(ops[0], cwd)})
 	}
 	return out
 }
@@ -1726,7 +1786,7 @@ func (w *walker) addDest(dest string, sources []string, p parsedArgs, flags copy
 	relative := p.has(flags.relative...)
 	recursive := !relative && p.has(flags.recursive...)
 	for _, cwd := range cwds {
-		tree := recursive && w.isCwdOrHome(resolve(dest, cwd, w.env.Home))
+		tree := recursive && w.isCwdOrHome(w.resolve(dest, cwd))
 		for _, src := range sources {
 			if _, remotePath, remote := splitRemote(src); remote {
 				src = remotePath
@@ -1745,7 +1805,7 @@ func (w *walker) addDest(dest string, sources []string, p parsedArgs, flags copy
 				if tree {
 					access = AccessWriteTree
 				}
-				w.addTarget(Target{Path: resolve(target, cwd, w.env.Home), Access: access, Named: true})
+				w.addTarget(Target{Path: w.resolve(target, cwd), Access: access, Named: true})
 				continue
 			}
 			w.add(target, AccessWrite, dirs{cwd})
@@ -1839,24 +1899,30 @@ func (w *walker) targetsOf(value string, access Access, cwds dirs) []Target {
 	if value == "" || (value == "-" && access == AccessRead) {
 		return nil
 	}
-	glob := ""
-	if i := strings.IndexAny(value, "*?["); i >= 0 {
-		glob = value
-		value = path.Dir(value[:i] + "x")
-		if access == AccessWrite {
-			access = AccessWriteTree
-		}
+	value, glob := splitGlob(value)
+	if glob != "" && access == AccessWrite {
+		access = AccessWriteTree
 	}
 	out := make([]Target, 0, len(cwds))
 	for _, cwd := range cwds {
-		t := Target{Path: resolve(value, cwd, w.env.Home), Access: access}
+		t := Target{Path: w.resolve(value, cwd), Access: access}
 		if glob != "" && access == AccessRead {
-			t.Glob = resolve(glob, cwd, w.env.Home)
+			t.Glob = w.resolve(glob, cwd)
 			t.MatchDot = w.matchDot
 		}
 		out = append(out, t)
 	}
 	return out
+}
+
+// splitGlob returns the directory before the first glob character of p,
+// with p as the glob, or p and no glob.
+func splitGlob(p string) (dir, glob string) {
+	i := strings.IndexAny(p, "*?[")
+	if i < 0 {
+		return p, ""
+	}
+	return path.Dir(p[:i] + "x"), p
 }
 
 func (w *walker) addTarget(t Target) {
@@ -1873,8 +1939,13 @@ func IsAbs(p string) bool {
 	if path.IsAbs(p) {
 		return true
 	}
-	return len(p) >= 3 && p[1] == ':' && p[2] == '/' &&
-		(p[0] >= 'a' && p[0] <= 'z' || p[0] >= 'A' && p[0] <= 'Z')
+	return len(p) >= 3 && isDriveLetter(p[0]) && p[1] == ':' && p[2] == '/'
+}
+
+// resolve resolves a path word of the command in the environment of the
+// walker.
+func (w *walker) resolve(p, cwd string) string {
+	return resolve(w.env.native(p), cwd, w.env.Home)
 }
 
 func resolve(p, cwd, home string) string {
@@ -1955,7 +2026,11 @@ func (w *walker) wordPart(b *strings.Builder, part syntax.WordPart, quoted bool,
 		case p.Param.Value == "PWD" && len(cwds) == 1 && cwds[0] != "":
 			b.WriteString(cwds[0])
 		default:
-			return false
+			v, ok := w.env.Vars[p.Param.Value]
+			if !ok {
+				return false
+			}
+			b.WriteString(v)
 		}
 	case *syntax.ProcSubst:
 		// The shell passes the path of a pipe that holds the output of

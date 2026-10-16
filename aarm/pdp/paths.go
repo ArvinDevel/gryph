@@ -4,6 +4,7 @@ import (
 	"path"
 	"slices"
 	"strings"
+	"unicode"
 
 	"github.com/bmatcuk/doublestar/v4"
 	"github.com/safedep/gryph/aarm/model"
@@ -95,13 +96,14 @@ func (a *actionPaths) actionPath() []string {
 // project root, home or ~/.config is a common command.
 func (r compiledRule) matchesFiles(action *model.Action, paths *actionPaths) bool {
 	for _, p := range paths.actionPath() {
+		fp := r.fold(p)
 		switch {
-		case matchesAnyPath(r.filePatterns, p):
+		case matchesAnyPath(r.filePatterns, fp):
 			return true
-		case action.Type == model.ActionFileDelete && matchesAnyPath(r.containerPatterns, p):
+		case action.Type == model.ActionFileDelete && matchesAnyPath(r.containerPatterns, fp):
 			return true
 		case action.Type == model.ActionFileRead && slices.Contains(r.fileAccess, shellcmd.AccessRead) &&
-			matchesAnyPath(r.containerPatterns, p) && !isHomeOrParent(p):
+			matchesAnyPath(r.containerPatterns, fp) && !r.isHomeOrParent(p):
 			return true
 		}
 	}
@@ -129,7 +131,8 @@ func (r compiledRule) selects(access shellcmd.Access) bool {
 // not through a glob, also matches only the file patterns, as for a
 // file_read action.
 func (r compiledRule) matchesTarget(t shellcmd.Target) bool {
-	treeRead := t.Access == shellcmd.AccessRead && !t.Guess && !t.Flat && (t.Glob != "" || !isHomeOrParent(t.Path))
+	treeRead := t.Access == shellcmd.AccessRead && !t.Guess && !t.Flat && (t.Glob != "" || !r.isHomeOrParent(t.Path))
+	t.Path, t.Glob = r.fold(t.Path), r.fold(t.Glob)
 	if t.Glob != "" {
 		return globsOverlap(t.Glob, r.filePatterns, t.MatchDot) || (treeRead && globsOverlap(t.Glob, r.containerPatterns, t.MatchDot))
 	}
@@ -150,12 +153,32 @@ func (r compiledRule) matchesTarget(t shellcmd.Target) bool {
 	return false
 }
 
+// fold returns p in the case of the rule's patterns: with each letter
+// folded when the rule folds case, else p as it is.
+func (r compiledRule) fold(p string) string {
+	if !r.foldCase {
+		return p
+	}
+	return strings.Map(foldRune, p)
+}
+
+// foldRune returns the smallest rune that Unicode folds r with. All the
+// forms of a letter, such as s, S and the long s, give one rune, as the
+// case folding of a file system does. strings.ToLower keeps the long s.
+func foldRune(r rune) rune {
+	least := r
+	for f := unicode.SimpleFold(r); f != r; f = unicode.SimpleFold(f) {
+		least = min(least, f)
+	}
+	return least
+}
+
 // isHomeOrParent reports whether p is the home directory or one of its
-// parents. A search of these directories is common, and a rule that blocks
-// it blocks too much.
-func isHomeOrParent(p string) bool {
-	p = shellcmd.ResolvePath(p, "")
-	home := shellcmd.ResolvePath("~", "")
+// parents, in the case of the rule. A search of these directories is
+// common, and a rule that blocks it blocks too much.
+func (r compiledRule) isHomeOrParent(p string) bool {
+	p = r.fold(shellcmd.ResolvePath(p, ""))
+	home := r.fold(shellcmd.ResolvePath("~", ""))
 	return p == "/" || p == home || strings.HasPrefix(home, p+"/")
 }
 
