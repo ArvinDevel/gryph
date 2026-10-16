@@ -1,9 +1,10 @@
 // Package service installs the decision service as a system service with
 // a socket that the service manager holds: a systemd socket and service
-// unit on Linux. The socket stays open across a restart or an upgrade of
-// the service, so a hook that connects in that window waits for the
-// welcome instead of taking the absent-service fallback. The service runs
-// as the service account under the hardening set of the platform.
+// unit on Linux, a LaunchDaemon with a Sockets entry on macOS. The socket
+// stays open across a restart or an upgrade of the service, so a hook that
+// connects in that window waits for the welcome instead of taking the
+// absent-service fallback. The service runs as the service account under
+// the hardening set of the platform.
 package service
 
 import (
@@ -18,7 +19,9 @@ import (
 // package drives.
 var ErrUnsupported = errors.New("service: not supported on this platform")
 
-// Spec describes the service.
+// Spec describes the service. Capabilities, RuntimeDir and SyscallAllow
+// are Linux settings. A platform without them refuses a spec that sets
+// one, so a service that needs a kernel feature does not start without it.
 type Spec struct {
 	// Name is the unit name, for example gryph-supervisor.
 	Name        string
@@ -85,6 +88,18 @@ func Active(ctx context.Context, name string) bool {
 		return false
 	}
 	return active(ctx, name)
+}
+
+// ReloadHint returns the command that asks the running service to read
+// its configuration again, for a report that names the next step.
+func ReloadHint(name string) string {
+	return reloadHint(name)
+}
+
+// LogHint returns where the output of the service goes, for a report that
+// tells an administrator where to look.
+func LogHint(name string) string {
+	return logHint(name)
 }
 
 func (s Spec) validate() error {

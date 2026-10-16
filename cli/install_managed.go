@@ -1,13 +1,10 @@
 package cli
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/safedep/gryph/platform/localauth"
-	"github.com/safedep/gryph/selfprotect"
 	"io"
 	"net"
 	"os"
@@ -16,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/safedep/dry/log"
 	"github.com/safedep/gryph/aarm/pdp"
 	"github.com/safedep/gryph/aarm/receipt"
 	"github.com/safedep/gryph/agent"
@@ -26,7 +24,9 @@ import (
 	"github.com/safedep/gryph/hookside"
 	"github.com/safedep/gryph/internal/version"
 	"github.com/safedep/gryph/platform/account"
+	"github.com/safedep/gryph/platform/localauth"
 	"github.com/safedep/gryph/platform/service"
+	"github.com/safedep/gryph/selfprotect"
 	"github.com/safedep/gryph/spool"
 	"github.com/safedep/gryph/tui"
 	"github.com/spf13/cobra"
@@ -77,8 +77,9 @@ type managedServiceReport struct {
 	// fallback before the service answers.
 	Running bool   `json:"running"`
 	Switch  string `json:"switch"`
-	// AuthPolicy is the file that declares the approval action to the
-	// authority of the platform, when the platform has one.
+	// AuthPolicy names the declaration of the approval action to the
+	// authority of the platform, a file or a database entry, when the
+	// platform has one.
 	AuthPolicy string `json:"auth_policy,omitempty"`
 	Error      string `json:"error,omitempty"`
 }
@@ -283,6 +284,8 @@ func runManagedInstall(cmd *cobra.Command, args managedInstallArgs) error {
 			report.Changed = report.Changed || report.Service.Changed
 			if in.cfg.Supervisor.Fanotify.Enabled {
 				report.Fanotify = installFanotifyService(ctx, in)
+			}
+			if report.Fanotify != nil {
 				if report.Fanotify.Error != "" {
 					degraded++
 				}
@@ -316,7 +319,11 @@ func runManagedInstall(cmd *cobra.Command, args managedInstallArgs) error {
 func installMachineKeys(cfg *config.Config) *managedKeysReport {
 	sup := cfg.Supervisor
 	report := &managedKeysReport{ReceiptKey: sup.ReceiptKeyPath(), ExportKey: sup.ExportKeyPath(), TrustStore: config.ManagedTrustStorePath()}
-	if err := os.MkdirAll(sup.StatePath(), 0o750); err != nil {
+	if err := ensureStateDir(sup.StatePath()); err != nil {
+		report.Error = err.Error()
+		return report
+	}
+	if _, err := checkStateDir(cfg); err != nil {
 		report.Error = err.Error()
 		return report
 	}
@@ -342,16 +349,69 @@ func installMachineKeys(cfg *config.Config) *managedKeysReport {
 	return report
 }
 
+// ensureStateDir makes the state directory below a root-owned chain. The
+// keys go into it, so a directory above it that a user made or can write
+// would let that user take the keys. The parent is made as root first, so
+// only a directory that existed before can fail the check.
+func ensureStateDir(state string) error {
+	parent := filepath.Dir(state)
+	if err := os.MkdirAll(parent, 0o755); err != nil {
+		return err
+	}
+	if err := config.VerifyManagedPath(parent); err != nil {
+		return fmt.Errorf("state directory %s: %w", state, err)
+	}
+	return os.MkdirAll(state, 0o750)
+}
+
+// ensureSocketDir makes the directory of the socket as root and checks
+// its chain like a managed file. A user who can write the directory could
+// put a socket of their own at the path, and every hook would then refuse
+// the server.
+func ensureSocketDir(socket string) error {
+	dir := filepath.Dir(socket)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	if err := config.VerifyManagedPath(dir); err != nil {
+		return fmt.Errorf("socket directory %s: %w", dir, err)
+	}
+	return nil
+}
+
+// checkStateDir refuses a state directory that is not a directory, or
+// that an account other than root or the service account owns. It runs
+// before the keys go in, so a refused directory never gets them. It
+// returns the uid of the owner, or 0 when the platform does not tell.
+func checkStateDir(cfg *config.Config) (uint32, error) {
+	state := cfg.Supervisor.StatePath()
+	info, err := os.Lstat(state)
+	if err != nil {
+		return 0, err
+	}
+	if !info.IsDir() {
+		return 0, fmt.Errorf("state directory %s is not a directory", state)
+	}
+	uid, _, ok := ownerOf(info)
+	if !ok || uid == 0 {
+		return 0, nil
+	}
+	acct, err := account.Lookup(cfg.Supervisor.ServerAccount())
+	if err != nil || uid != acct.UID {
+		return 0, fmt.Errorf("state directory %s belongs to uid %d, not to root or the service account %s", state, uid, cfg.Supervisor.ServerAccount())
+	}
+	return uid, nil
+}
+
 // handStateToServiceAccount gives the state directory and the keys to the
-// service account. The owner of an existing state directory stays, so a
-// host that runs the service under another account keeps it.
+// service account. An existing state directory of the service account
+// stays as it is.
 func handStateToServiceAccount(cfg *config.Config) (string, error) {
-	info, err := os.Stat(cfg.Supervisor.StatePath())
+	owner, err := checkStateDir(cfg)
 	if err != nil {
 		return "", err
 	}
-	uid, _, ok := ownerOf(info)
-	if ok && uid != 0 {
+	if owner != 0 {
 		return handMachineKeysToServiceAccount(cfg)
 	}
 	acct, err := account.Lookup(cfg.Supervisor.ServerAccount())
@@ -396,14 +456,16 @@ func installSupervisorService(ctx context.Context, in *managedInstallInput, repo
 			return
 		}
 	}
-	if path, content := localauth.PolicyFile(); path != "" {
-		changed, err := writeRootFile(path, content)
-		if err != nil {
-			svc.Error = "write the authentication policy: " + err.Error()
-			return
-		}
-		svc.AuthPolicy = path
-		svc.Changed = svc.Changed || changed
+	reg, err := localauth.Register(ctx)
+	if err != nil {
+		svc.Error = "declare the approval action to the authority: " + err.Error()
+		return
+	}
+	svc.AuthPolicy = reg.Path
+	svc.Changed = svc.Changed || reg.Changed
+	if err := ensureSocketDir(sup.SocketPath()); err != nil {
+		svc.Error = err.Error()
+		return
 	}
 	res, err := service.Install(ctx, service.Spec{
 		Name:        supervisorServiceName,
@@ -439,16 +501,17 @@ func installSupervisorService(ctx context.Context, in *managedInstallInput, repo
 	// reload makes a running service read both again.
 	if report.Changed {
 		if _, reloaded, note := reloadService(sup.PIDFile()); !reloaded {
-			svc.Next = "systemctl reload " + supervisorServiceName + ".service (" + note + ")"
+			svc.Next = service.ReloadHint(supervisorServiceName) + " (" + note + ")"
 		}
 	}
 }
 
 // installFanotifyService writes the unit of the kernel watcher and starts
-// it. The watcher runs as the service account with the two capabilities
-// the fanotify API needs, and reports in the runtime directory next to
-// the socket. A watcher that does not report within the wait degrades the
-// install and names the next step.
+// it, or returns nil on a host without the watcher. The watcher runs as
+// the service account with the two capabilities the fanotify API needs,
+// and reports in the runtime directory next to the socket. A watcher that
+// does not report within the wait degrades the install and names the next
+// step.
 func installFanotifyService(ctx context.Context, in *managedInstallInput) *managedServiceReport {
 	sup := in.cfg.Supervisor
 	svc := &managedServiceReport{Account: sup.ServerAccount(), Units: []string{}, Switch: managedSwitchOn}
@@ -462,6 +525,13 @@ func installFanotifyService(ctx context.Context, in *managedInstallInput) *manag
 		RuntimeDir:   strings.TrimPrefix(filepath.Dir(sup.FanotifyStatePath()), "/run/"),
 		SyscallAllow: []string{"fanotify_init", "fanotify_mark", "name_to_handle_at"},
 	})
+	if errors.Is(err, service.ErrUnsupported) {
+		// One managed configuration can serve a fleet of Linux and macOS
+		// hosts. The watcher is a Linux feature, and another host goes
+		// on without it.
+		log.Warnf("supervisor.fanotify.enabled: the kernel watcher runs on Linux only, this host goes on without it")
+		return nil
+	}
 	if err != nil {
 		svc.Error = err.Error()
 		return svc
@@ -481,21 +551,8 @@ func installFanotifyService(ctx context.Context, in *managedInstallInput) *manag
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	svc.Error = "the watcher did not report within " + serviceHealthTimeout.String() + ": see journalctl -u " + fanotifyServiceName
+	svc.Error = "the watcher did not report within " + serviceHealthTimeout.String() + ": see " + service.LogHint(fanotifyServiceName)
 	return svc
-}
-
-// writeRootFile writes a root-owned file readable by every account, and
-// reports whether the content changed. The parent directory must exist:
-// the platform package of the authority owns it.
-func writeRootFile(path string, content []byte) (bool, error) {
-	if current, err := os.ReadFile(path); err == nil && bytes.Equal(current, content) {
-		return false, nil
-	}
-	if err := os.WriteFile(path, content, 0o644); err != nil {
-		return false, err
-	}
-	return true, nil
 }
 
 // waitForService connects to the socket of the service and waits for its

@@ -5,6 +5,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -200,4 +201,16 @@ func TestVerifyManagedPathTrust_RealFiles(t *testing.T) {
 	link := filepath.Join(base, "link")
 	require.NoError(t, os.Symlink(filepath.Join(base, "safedep"), link))
 	assert.NoError(t, verifyManagedPathTrust(filepath.Join(link, "gryph", configFileName)))
+}
+
+// The install gives the state directory to the service account, and the
+// managed files need a root-owned chain. The two must not share a tree.
+func TestSupervisorStateOutsideManagedDir(t *testing.T) {
+	managed := filepath.Clean(systemConfigDir())
+	for _, dir := range []string{supervisorStateDefault(), supervisorSpoolDefault(), filepath.Dir(supervisorSocketDefault())} {
+		rel, err := filepath.Rel(managed, dir)
+		require.NoError(t, err)
+		assert.True(t, rel == ".." || strings.HasPrefix(rel, "../"), "%s is inside the managed directory %s", dir, managed)
+	}
+	assert.NotEqual(t, filepath.Dir(ManagedTrustStorePath()), SupervisorConfig{}.KeyDir())
 }

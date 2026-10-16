@@ -518,9 +518,11 @@ list` shows the open requests and `gryph policy approve show ID` one of
 them. A member of `policy.approval.local_admin.group` sees the requests of
 every account and answers with `gryph policy approve resolve --id ID
 --decision allow|deny [--scope once|session|window] [--note TEXT]`, which
-confirms on the terminal and refuses `--yes`. On a host with polkit the
-service also asks for the password of the approver, through `pkttyagent`
-on the terminal of the command. `gryph policy approve watch` prints each
+confirms on the terminal and refuses `--yes`. On a host with an authority the
+service also asks for the password of the approver: polkit on Linux, through
+`pkttyagent` on the terminal of the command, and Authorization Services on
+macOS, through the password prompt of the desktop session before the answer
+goes. `gryph policy approve watch` prints each
 new request. The keys under `policy.approval` set the
 channels, the floor, the waits, the grant scope and the admin group. See
 [the approval workflow](./security-policy.md#approval-workflow).
@@ -593,11 +595,12 @@ names another state directory, for a test. The JSON report has `key_id`,
 
 The managed configuration sets the service: `supervisor.enabled` (the hook
 becomes a client of the service), `supervisor.socket` (default
-`/run/safedep/gryph/hook.sock` on Linux, `/var/run/safedep/gryph/hook.sock`
+`/run/safedep/gryph/hook.sock` on Linux, `/var/db/safedep/gryph/hook.sock`
 on macOS), `supervisor.profile` (`enforce` or `pilot`) with
 `supervisor.pilot_until` (the date the pilot ends, `2006-01-02` or RFC 3339;
 a pilot needs one, and after it the host runs `enforce`), `supervisor.state_dir`
-(default `/var/lib/safedep/gryph` on Linux, the managed directory on macOS),
+(default `/var/lib/safedep/gryph` on Linux,
+`/Library/Application Support/safedep/gryph-supervisor` on macOS),
 `supervisor.spool_dir` (default `/var/spool/safedep/gryph`) and
 `supervisor.unavailable.{blocking,prompt,other}` (`block` or `allow`: what a
 hook does when the service is out of reach, default `block` for a blocking
