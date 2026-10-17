@@ -21,6 +21,7 @@ import (
 	"github.com/google/cel-go/common/operators"
 	"github.com/google/cel-go/common/types"
 	"github.com/google/cel-go/common/types/ref"
+	"github.com/google/cel-go/common/types/traits"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/gryph/aarm/model"
 	"github.com/safedep/gryph/aarm/shellcmd"
@@ -913,6 +914,11 @@ func conditionEnv() (*cel.Env, error) {
 		cel.Function("glob",
 			cel.Overload("glob_string_string", []*cel.Type{cel.StringType, cel.StringType}, cel.BoolType,
 				cel.BinaryBinding(celGlob))),
+		cel.Function("known_hosts",
+			cel.Overload("known_hosts_list", []*cel.Type{cel.ListType(cel.StringType)}, cel.ListType(cel.StringType),
+				cel.UnaryBinding(celKnownHosts)),
+			cel.Overload("known_hosts_string", []*cel.Type{cel.StringType}, cel.ListType(cel.StringType),
+				cel.UnaryBinding(celKnownHosts))),
 	)
 }
 
@@ -936,6 +942,32 @@ func celGlob(path, pattern ref.Val) ref.Val {
 		return types.NewErr("glob: invalid pattern %q", string(pat))
 	}
 	return types.Bool(matchesAnyPath([]string{string(pat)}, string(p)))
+}
+
+// celKnownHosts implements known_hosts(hosts). It drops the unknown host,
+// so a rule that reads it matches only the hosts that Gryph could read. A
+// rule that reads the list itself also sees the unknown host.
+// A single host, such as the host of an entry, gives a list of zero or one.
+// An entry with no host has the empty host, which is not a host.
+func celKnownHosts(hosts ref.Val) ref.Val {
+	if h, ok := hosts.(types.String); ok {
+		hosts = types.NewStringList(types.DefaultTypeAdapter, []string{string(h)})
+	}
+	list, ok := hosts.(traits.Lister)
+	if !ok {
+		return types.NewErr("known_hosts: want list(string)")
+	}
+	known := []string{}
+	for it := list.Iterator(); it.HasNext() == types.True; {
+		h, ok := it.Next().(types.String)
+		if !ok {
+			return types.NewErr("known_hosts: want list(string)")
+		}
+		if h != "" && string(h) != shellcmd.UnknownHost {
+			known = append(known, string(h))
+		}
+	}
+	return types.NewStringList(types.DefaultTypeAdapter, known)
 }
 
 // phaseOrUnknown normalizes the empty ActionPhase zero value to PhaseUnknown
