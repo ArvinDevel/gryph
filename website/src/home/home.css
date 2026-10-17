@@ -16,12 +16,12 @@
   .split { grid-template-columns: minmax(0, 1fr); }
 }
 
-.lead code { font-size: 0.9em; font-weight: 600; color: var(--ink-900); }
-.hero-note { font: 12px var(--font-mono); color: var(--ink-500); letter-spacing: 0.04em; }
+.lead code { font-size: 0.9em; font-weight: 600; color: var(--fg); }
+.hero-note { font: 12px var(--font-mono); color: var(--fg-3); letter-spacing: 0.04em; }
 
 /* Chips are small labels under a section lead. */
 .chips { list-style: none; display: flex; flex-wrap: wrap; gap: 10px; margin-top: 24px; }
-.chips li { padding: 4px 10px; background: var(--white); border: var(--line); box-shadow: var(--shadow-xs); font: 600 12px var(--font-mono); }
+.chips li { padding: 4px 10px; background: var(--surface); border: var(--line); box-shadow: var(--shadow-xs); font: 600 12px var(--font-mono); }
 
 /* The rules section stacks the policy above the agent view. */
 .stack { display: grid; gap: 24px; min-width: 0; }
@@ -49,7 +49,7 @@
 /* This section shows planned intent checks. They are not in a release yet. */
 #next .split { align-items: start; }
 .kicker-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.soon { display: inline-block; padding: 5px 8px 4px; background: var(--coin); border: var(--line); box-shadow: var(--shadow-xs); font: 10px/1 var(--font-pixel); text-transform: uppercase; color: var(--ink-900); }
+.soon { display: inline-block; padding: 5px 8px 4px; background: var(--coin); border: var(--line); box-shadow: var(--shadow-xs); font: 10px/1 var(--font-pixel); text-transform: uppercase; color: var(--on-accent); }
 .soon-sm { padding: 3px 5px 2px; font-size: 8px; box-shadow: none; }
 
 .draft { position: relative; min-width: 0; }
@@ -58,11 +58,11 @@
 .soon-stamp { position: absolute; top: -14px; right: 18px; z-index: 1; transform: rotate(-3deg); }
 
 .channels { list-style: none; display: grid; gap: 14px; margin-top: 28px; max-width: 460px; }
-.channel { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 2px 12px; padding: 10px 12px; background: var(--white); border: var(--line); border-left: 8px solid var(--tone); box-shadow: var(--shadow-xs); font: 13px var(--font-mono); }
+.channel { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 2px 12px; padding: 10px 12px; background: var(--surface); border: var(--line); border-left: 8px solid var(--tone); box-shadow: var(--shadow-xs); font: 13px var(--font-mono); }
 .channel .blob { grid-row: span 2; }
 .channel b { font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
 .channel .tag { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; }
-.channel-how { grid-column: 2 / -1; color: var(--ink-500); font-size: 12px; }
+.channel-how { grid-column: 2 / -1; color: var(--fg-3); font-size: 12px; }
 .channel-you { --tone: var(--mint); }
 .channel-world { --tone: var(--cherry); }
 .tag-trust { background: var(--mint-soft); color: var(--mint-deep); }
@@ -90,14 +90,14 @@
 .meter-mid { --meter: var(--coin); }
 .meter-high { --meter: var(--cherry); }
 
-.layers { list-style: none; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); margin-top: 48px; background: var(--white); border: var(--bw-card) solid var(--ink-900); box-shadow: var(--shadow-md); }
+.layers { list-style: none; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); margin-top: 48px; background: var(--surface); border: var(--bw-card) solid var(--rule); box-shadow: var(--shadow-md); }
 .layer { display: flex; flex-direction: column; gap: 8px; padding: 16px; border-left: var(--line); }
 .layer:first-child { border-left: 0; }
 .layer-pass { background: var(--mint-soft); }
 .layer-soon { border-left-style: dashed; }
 .layer-name { display: flex; align-items: center; justify-content: space-between; gap: 8px; font: 700 13px var(--font-mono); text-transform: uppercase; letter-spacing: 0.08em; }
 .layer-when { font: 600 11px var(--font-mono); color: var(--mint-deep); text-transform: none; letter-spacing: 0; }
-.layer p { font-size: 14px; line-height: 1.45; color: var(--ink-700); }
+.layer p { font-size: 14px; line-height: 1.45; color: var(--fg-2); }
 .layer p.layer-can { margin-top: auto; font: 700 11px var(--font-mono); letter-spacing: 0.14em; text-transform: uppercase; }
 .layer p.layer-can-pass { color: var(--mint-deep); }
 .layer p.layer-can-tighten { color: var(--cherry-deep); }

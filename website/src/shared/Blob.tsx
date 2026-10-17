@@ -142,7 +142,7 @@ export function Blob({ seed, size = 48, expression = 'idle', title }: BlobProps)
       aria-label={title}
       aria-hidden={title ? undefined : true}
     >
-      <path d={body} style={{ fill: `var(--${tone})`, stroke: INK, strokeWidth: 3.5, strokeLinejoin: 'round' }} />
+      <path d={body} style={{ fill: `var(--${tone})`, stroke: 'var(--rule)', strokeWidth: 3.5, strokeLinejoin: 'round' }} />
       <path
         d={body}
         transform="translate(50 53) scale(0.78) translate(-50 -53) translate(-3 -5)"

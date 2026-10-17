@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react'
 import { REPO_URL, SAFEDEP_URL, cx } from './site'
 import { useStars } from './github'
-import { GitHubMark } from './Icons'
+import { GitHubMark, ThemeIcons } from './Icons'
+import { setTheme, useTheme, type ThemeChoice } from './theme'
 
 const MARK = [
   'M7.86802 33.7899L0.439392 31.1018L0.400024 10.6899L7.82866 13.3781L7.8342 16.5347L7.83311 16.5467L7.86802 33.7899Z',
@@ -62,9 +63,24 @@ export function Topbar({ brandHref, wide, nav, children }: TopbarProps) {
       <div className="topbar-in">
         <Crumbs brandHref={brandHref} />
         {nav}
-        <div className="topbar-end">{children}</div>
+        <div className="topbar-end">
+          {children}
+          <ThemeToggle />
+        </div>
       </div>
     </header>
+  )
+}
+
+const NEXT: Record<ThemeChoice, ThemeChoice> = { system: 'light', light: 'dark', dark: 'system' }
+
+function ThemeToggle() {
+  const choice = useTheme()
+  const label = `Theme: ${choice}. Switch to ${NEXT[choice]}.`
+  return (
+    <button type="button" className="btn btn-sm theme" onClick={() => setTheme(NEXT[choice])} aria-label={label} title={label}>
+      <ThemeIcons />
+    </button>
   )
 }
 
