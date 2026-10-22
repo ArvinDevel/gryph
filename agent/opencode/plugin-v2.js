@@ -91,6 +91,9 @@ export default {
         const output = event.result?.output;
         const content = event.result?.content;
         const metadata = event.result?.metadata;
+        // A failed V2 call reports a status and sometimes an error instead of
+        // an output. Keep the status so gryph records the failure even when
+        // the runtime sends no message.
         const result =
           event.status === "completed"
             ? {
@@ -106,7 +109,7 @@ export default {
                 // V2 shell calls the exit code "exit" in metadata.
                 exitCode: metadata?.exit ?? metadata?.exitCode,
               }
-            : { error: event.error };
+            : { error: event.error, status: event.status };
         invokeGryph("tool.execute.after", {
           hook_type: "tool.execute.after",
           session_id: event.sessionID,

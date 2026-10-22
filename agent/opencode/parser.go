@@ -129,7 +129,11 @@ func (a *Adapter) parseToolEvent(hookType string, rawData []byte, isAfter bool) 
 	var toolResponse map[string]interface{}
 	if isAfter {
 		toolResponse = input.Result
-		event.ResultStatus = events.ResultSuccess
+		if hasToolError(toolResponse) {
+			event.ResultStatus = events.ResultError
+		} else {
+			event.ResultStatus = events.ResultSuccess
+		}
 	}
 
 	if err := a.buildPayload(event, actionType, toolName, input.Args, toolResponse); err != nil {
@@ -140,6 +144,53 @@ func (a *Adapter) parseToolEvent(hookType string, rawData []byte, isAfter bool) 
 	a.markSensitivePaths(event, actionType, input.Args)
 
 	return event, nil
+}
+
+// hasToolError reports whether an after-event carries tool failure information.
+// OpenCode 2.x sends {"error": ...} and a non-completed status instead of an
+// output when a tool call fails.
+func hasToolError(toolResponse map[string]interface{}) bool {
+	if toolResponse == nil {
+		return false
+	}
+	if status, ok := toolResponse["status"].(string); ok && status != "" && status != "completed" {
+		return true
+	}
+	raw, ok := toolResponse["error"]
+	if !ok || raw == nil {
+		return false
+	}
+	switch value := raw.(type) {
+	case string:
+		return strings.TrimSpace(value) != ""
+	case map[string]interface{}:
+		return len(value) > 0
+	}
+	return true
+}
+
+// toolErrorText renders the failure reason of an after-event so command
+// payloads keep why a call failed.
+func toolErrorText(toolResponse map[string]interface{}) string {
+	if toolResponse == nil {
+		return ""
+	}
+	switch value := toolResponse["error"].(type) {
+	case string:
+		if text := strings.TrimSpace(value); text != "" {
+			return text
+		}
+	case map[string]interface{}:
+		if len(value) > 0 {
+			if encoded, err := json.Marshal(value); err == nil {
+				return string(encoded)
+			}
+		}
+	}
+	if status, ok := toolResponse["status"].(string); ok && status != "" && status != "completed" {
+		return status
+	}
+	return ""
 }
 
 func (a *Adapter) parseSessionEvent(hookType string, rawData []byte, actionType events.ActionType) (*events.Event, error) {
@@ -303,6 +354,8 @@ func (a *Adapter) buildPayload(event *events.Event, actionType events.ActionType
 		if toolResponse != nil {
 			if output, ok := toolResponse["output"].(string); ok {
 				payload.Output = privacy.Preview(output, 500)
+			} else if message := toolErrorText(toolResponse); message != "" {
+				payload.Output = privacy.Preview(message, 500)
 			}
 			if exitCode, ok := toolResponse["exitCode"].(float64); ok {
 				payload.ExitCode = int(exitCode)

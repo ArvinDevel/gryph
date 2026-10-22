@@ -159,7 +159,9 @@ Code has no prompt hook, so its sessions have no intent.
   named `shell`, and session lifecycle arrives as execution events. The V2
   plugin maps `prompt` to `chat.message`, `session.execution.started` to
   `session.created`, `session.execution.succeeded` to `session.idle`, and
-  `session.execution.failed` to `session.error`.
+  `session.execution.failed` to `session.error`. A failed tool call arrives
+  with a non-`completed` status and sometimes an `error`; the plugin forwards
+  the status so the audit event stays a failure.
 - The model writes the prompt of an OpenCode subagent session, which has a
   parent session. Pi marks input from extension code with `source: extension`.
   Gryph gives both prompts the origin `agent`, and records them as

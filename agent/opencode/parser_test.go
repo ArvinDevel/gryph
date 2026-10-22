@@ -173,6 +173,49 @@ func TestParseHookEvent_ToolExecuteAfter_Bash(t *testing.T) {
 	assert.Equal(t, events.ResultSuccess, event.ResultStatus)
 }
 
+func TestParseHookEvent_ToolExecuteAfter_ShellError(t *testing.T) {
+	ctx := context.Background()
+
+	tests := []struct {
+		name           string
+		result         string
+		expectedOutput string
+	}{
+		{
+			name:           "error message",
+			result:         `{"error": "command not found", "status": "error"}`,
+			expectedOutput: "command not found",
+		},
+		{
+			name:           "status only",
+			result:         `{"status": "interrupted"}`,
+			expectedOutput: "interrupted",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data := []byte(`{
+				"hook_type": "tool.execute.after",
+				"session_id": "opencode-session-abc123",
+				"tool": "shell",
+				"result": ` + tt.result + `,
+				"cwd": "/home/user/project"
+			}`)
+
+			event, err := testAdapter(t).ParseEvent(ctx, "tool.execute.after", data)
+			require.NoError(t, err)
+			require.NotNil(t, event)
+
+			assert.Equal(t, events.ActionCommandExec, event.ActionType)
+			assert.Equal(t, events.ResultError, event.ResultStatus)
+			payload, err := event.GetCommandExecPayload()
+			require.NoError(t, err)
+			assert.Equal(t, tt.expectedOutput, payload.Output.Value)
+		})
+	}
+}
+
 func TestParseHookEvent_ToolExecuteAfter_Shell(t *testing.T) {
 	ctx := context.Background()
 	data := []byte(`{
