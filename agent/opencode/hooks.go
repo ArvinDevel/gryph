@@ -287,5 +287,12 @@ func GetHookStatus(ctx context.Context) (*agent.HookStatus, error) {
 		func(hookType string) string { return `"` + hookType + `"` },
 		"plugin file differs from expected content (may need update)")
 
+	if openCodeMajor(detection.Version) == 0 {
+		status.CompatibilityUnverified = true
+		if status.Valid {
+			status.Issues = append(status.Issues, "OpenCode version could not be detected; cannot verify plugin compatibility")
+		}
+	}
+
 	return status, nil
 }

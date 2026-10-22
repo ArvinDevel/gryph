@@ -119,6 +119,32 @@ func TestInstallHooks_UnknownVersionErrors(t *testing.T) {
 	assert.True(t, os.IsNotExist(statErr))
 }
 
+func TestInstallHooks_UpgradesV1ToV2(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake opencode is a shell script")
+	}
+
+	home := t.TempDir()
+	testpath.SetHome(t, home)
+	dir := filepath.Join(home, ".config", "opencode", "plugins")
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	pluginFile := filepath.Join(dir, pluginFileName)
+	require.NoError(t, os.WriteFile(pluginFile, processedPlugin(""), 0o644))
+
+	bin := t.TempDir()
+	script := filepath.Join(bin, "opencode")
+	require.NoError(t, os.WriteFile(script, []byte("#!/bin/sh\necho 'opencode v2.1.2'\n"), 0o755))
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	result, err := InstallHooks(context.Background(), agent.InstallOptions{})
+	require.NoError(t, err)
+	assert.True(t, result.Success)
+
+	content, err := os.ReadFile(pluginFile)
+	require.NoError(t, err)
+	assert.True(t, isV2Plugin(content))
+}
+
 func TestInstallHooks_UnknownVersionKeepsExistingPlugin(t *testing.T) {
 	home := t.TempDir()
 	testpath.SetHome(t, home)
@@ -136,6 +162,22 @@ func TestInstallHooks_UnknownVersionKeepsExistingPlugin(t *testing.T) {
 	content, err := os.ReadFile(pluginFile)
 	require.NoError(t, err)
 	assert.Equal(t, existing, content)
+}
+
+func TestGetHookStatus_UnknownVersionIsUnverified(t *testing.T) {
+	home := t.TempDir()
+	testpath.SetHome(t, home)
+	dir := filepath.Join(home, ".config", "opencode", "plugins")
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, pluginFileName), processedPlugin(""), 0o644))
+	t.Setenv("PATH", t.TempDir())
+
+	status, err := GetHookStatus(context.Background())
+	require.NoError(t, err)
+	assert.True(t, status.Installed)
+	assert.True(t, status.Valid)
+	assert.True(t, status.CompatibilityUnverified)
+	assert.Contains(t, status.Issues, "OpenCode version could not be detected; cannot verify plugin compatibility")
 }
 
 func TestGetHookStatus_PluginContent(t *testing.T) {
