@@ -55,13 +55,17 @@ func openCodeMajor(version string) int {
 }
 
 // pluginContent returns the plugin file for the installed OpenCode version.
-// An unknown version keeps the V1 plugin so an existing install is not
-// downgraded by a missing CLI.
-func pluginContent(program, version string) []byte {
-	if openCodeMajor(version) >= 2 {
-		return processedPluginV2(program)
+// It reports false when the version is unknown, because guessing would install
+// a plugin that OpenCode ignores.
+func pluginContent(program, version string) ([]byte, bool) {
+	switch major := openCodeMajor(version); {
+	case major >= 2:
+		return processedPluginV2(program), true
+	case major == 1:
+		return processedPlugin(program), true
+	default:
+		return nil, false
 	}
-	return processedPlugin(program)
 }
 
 func isV2Plugin(content []byte) bool {
@@ -71,9 +75,12 @@ func isV2Plugin(content []byte) bool {
 // installedForVersion reports whether content is already the plugin for the
 // detected OpenCode major version. An unknown version accepts either form.
 func installedForVersion(content []byte, version string) bool {
+	if !bytes.Contains(content, []byte("invokeGryph")) {
+		return false
+	}
 	major := openCodeMajor(version)
 	if major == 0 {
-		return bytes.Contains(content, []byte("invokeGryph"))
+		return true
 	}
 	return isV2Plugin(content) == (major >= 2)
 }
@@ -129,6 +136,12 @@ func InstallHooks(ctx context.Context, opts agent.InstallOptions) (*agent.Instal
 		}
 	}
 
+	content, ok := pluginContent(opts.Command, detection.Version)
+	if !ok {
+		result.Error = fmt.Errorf("could not determine the OpenCode version; make sure `opencode --version` prints a version, then rerun `gryph install`")
+		return result, result.Error
+	}
+
 	if opts.Backup && !opts.DryRun {
 		if _, err := os.Stat(pluginFile); err == nil {
 			var backupPath string
@@ -167,7 +180,7 @@ func InstallHooks(ctx context.Context, opts agent.InstallOptions) (*agent.Instal
 		return result, result.Error
 	}
 
-	if err := agent.WriteHookFile(pluginFile, pluginContent(opts.Command, detection.Version), 0644, opts); err != nil {
+	if err := agent.WriteHookFile(pluginFile, content, 0644, opts); err != nil {
 		result.Error = fmt.Errorf("failed to write plugin file: %w", err)
 		return result, result.Error
 	}
@@ -259,9 +272,16 @@ func GetHookStatus(ctx context.Context) (*agent.HookStatus, error) {
 		return status, nil
 	}
 
-	expected := pluginContent("", detection.Version)
-	if openCodeMajor(detection.Version) == 0 && isV2Plugin(data) {
+	var expected []byte
+	switch major := openCodeMajor(detection.Version); {
+	case major >= 2:
 		expected = processedPluginV2("")
+	case major == 1:
+		expected = processedPlugin("")
+	case isV2Plugin(data):
+		expected = processedPluginV2("")
+	default:
+		expected = processedPlugin("")
 	}
 	agent.SetPluginStatus(status, data, expected, legacyPluginDigests, Hooks,
 		func(hookType string) string { return `"` + hookType + `"` },
