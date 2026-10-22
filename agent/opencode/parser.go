@@ -46,6 +46,7 @@ var ToolNameMapping = map[string]events.ActionType{
 	"edit":      events.ActionFileWrite,
 	"patch":     events.ActionFileWrite,
 	"bash":      events.ActionCommandExec,
+	"shell":     events.ActionCommandExec,
 	"webfetch":  events.ActionToolUse,
 	"question":  events.ActionToolUse,
 	"todowrite": events.ActionToolUse,
@@ -237,6 +238,9 @@ func (a *Adapter) buildPayload(event *events.Event, actionType events.ActionType
 			payload.Path = path
 			filePath = path
 		} else if path, ok := toolInput["filePath"].(string); ok {
+			payload.Path = path
+			filePath = path
+		} else if path, ok := toolInput["path"].(string); ok {
 			payload.Path = path
 			filePath = path
 		}

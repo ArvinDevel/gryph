@@ -58,6 +58,29 @@ func TestParseHookEvent_ToolExecuteBefore_Write(t *testing.T) {
 	assert.Contains(t, payload.ContentPreview.Value, "package main")
 }
 
+func TestParseHookEvent_ToolExecuteBefore_WriteV2Path(t *testing.T) {
+	ctx := context.Background()
+	data := []byte(`{
+		"hook_type": "tool.execute.before",
+		"session_id": "opencode-session-abc123",
+		"tool": "write",
+		"args": {
+			"path": "/home/user/project/src/main.go",
+			"content": "package main"
+		},
+		"cwd": "/home/user/project"
+	}`)
+
+	event, err := testAdapter(t).ParseEvent(ctx, "tool.execute.before", data)
+	require.NoError(t, err)
+	require.NotNil(t, event)
+
+	payload, err := event.GetFileWritePayload()
+	require.NoError(t, err)
+	assert.Equal(t, "/home/user/project/src/main.go", payload.Path)
+	assert.Contains(t, payload.ContentPreview.Value, "package main")
+}
+
 func TestParseHookEvent_ToolExecuteBefore_Read(t *testing.T) {
 	ctx := context.Background()
 	data := loadFixture(t, "tool_execute_before_read.json")
@@ -148,6 +171,31 @@ func TestParseHookEvent_ToolExecuteAfter_Bash(t *testing.T) {
 	assert.Equal(t, events.ActionCommandExec, event.ActionType)
 	assert.Equal(t, "bash", event.ToolName)
 	assert.Equal(t, events.ResultSuccess, event.ResultStatus)
+}
+
+func TestParseHookEvent_ToolExecuteAfter_Shell(t *testing.T) {
+	ctx := context.Background()
+	data := []byte(`{
+		"hook_type": "tool.execute.after",
+		"session_id": "opencode-session-abc123",
+		"tool": "shell",
+		"result": {
+			"output": "hello-gryph",
+			"exitCode": 0
+		},
+		"cwd": "/home/user/project"
+	}`)
+
+	event, err := testAdapter(t).ParseEvent(ctx, "tool.execute.after", data)
+	require.NoError(t, err)
+	require.NotNil(t, event)
+
+	assert.Equal(t, events.ActionCommandExec, event.ActionType)
+	assert.Equal(t, "shell", event.ToolName)
+	payload, err := event.GetCommandExecPayload()
+	require.NoError(t, err)
+	assert.Equal(t, "hello-gryph", payload.Output.Value)
+	assert.Equal(t, 0, payload.ExitCode)
 }
 
 func TestParseHookEvent_ToolSessionIDCorrelation(t *testing.T) {
