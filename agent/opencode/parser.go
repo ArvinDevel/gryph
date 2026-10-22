@@ -139,6 +139,9 @@ func (a *Adapter) parseToolEvent(hookType string, rawData []byte, isAfter bool) 
 	if err := a.buildPayload(event, actionType, toolName, input.Args, toolResponse); err != nil {
 		return nil, fmt.Errorf("failed to build payload: %w", err)
 	}
+	if isAfter && event.ResultStatus == events.ResultError {
+		event.ErrorMessage = privacy.Preview(toolErrorText(toolResponse), 500).Value
+	}
 	event.ObserveOutput(toolResponse)
 
 	a.markSensitivePaths(event, actionType, input.Args)

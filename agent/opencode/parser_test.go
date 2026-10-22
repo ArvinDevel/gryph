@@ -209,11 +209,38 @@ func TestParseHookEvent_ToolExecuteAfter_ShellError(t *testing.T) {
 
 			assert.Equal(t, events.ActionCommandExec, event.ActionType)
 			assert.Equal(t, events.ResultError, event.ResultStatus)
+			assert.Equal(t, tt.expectedOutput, event.ErrorMessage)
 			payload, err := event.GetCommandExecPayload()
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectedOutput, payload.Output.Value)
 		})
 	}
+}
+
+func TestParseHookEvent_ToolExecuteAfter_ShellNonZeroExit(t *testing.T) {
+	ctx := context.Background()
+	data := []byte(`{
+		"hook_type": "tool.execute.after",
+		"session_id": "opencode-session-abc123",
+		"tool": "shell",
+		"result": {
+			"output": "",
+			"exitCode": 1
+		},
+		"cwd": "/home/user/project"
+	}`)
+
+	event, err := testAdapter(t).ParseEvent(ctx, "tool.execute.after", data)
+	require.NoError(t, err)
+	require.NotNil(t, event)
+
+	// A completed call stays a success; the exit code lives in the payload.
+	// Commands such as grep or diff exit 1 without the tool call failing.
+	assert.Equal(t, events.ResultSuccess, event.ResultStatus)
+	assert.Empty(t, event.ErrorMessage)
+	payload, err := event.GetCommandExecPayload()
+	require.NoError(t, err)
+	assert.Equal(t, 1, payload.ExitCode)
 }
 
 func TestParseHookEvent_ToolExecuteAfter_Shell(t *testing.T) {
