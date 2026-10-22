@@ -37,10 +37,9 @@ func processedPluginV2(program string) []byte {
 	return utils.RenderPlugin(pluginV2JS, program)
 }
 
-// openCodeMajor returns the major version of the OpenCode CLI, or 0 when the
-// version is unknown. OpenCode 2.x loads V2 plugins only; 1.x loads V1 plugins
-// only.
-func openCodeMajor(version string) int {
+// openCodeMajor returns the major version of the OpenCode CLI. The second
+// result is false when no numeric version can be read from the output.
+func openCodeMajor(version string) (int, bool) {
 	// OpenCode prints "opencode v2.1.2". VersionToken returns the first field
 	// when no field starts with a digit, so it would return "opencode" here.
 	// Scan every field instead.
@@ -48,24 +47,25 @@ func openCodeMajor(version string) int {
 		field = strings.TrimPrefix(field, "v")
 		major, err := strconv.Atoi(strings.SplitN(field, ".", 2)[0])
 		if err == nil {
-			return major
+			return major, true
 		}
 	}
-	return 0
+	return 0, false
 }
 
 // pluginContent returns the plugin file for the installed OpenCode version.
 // It reports false when the version is unknown, because guessing would install
 // a plugin that OpenCode ignores.
 func pluginContent(program, version string) ([]byte, bool) {
-	switch major := openCodeMajor(version); {
-	case major >= 2:
-		return processedPluginV2(program), true
-	case major == 1:
-		return processedPlugin(program), true
-	default:
+	major, ok := openCodeMajor(version)
+	if !ok {
 		return nil, false
 	}
+	if major >= 2 {
+		return processedPluginV2(program), true
+	}
+	// 0.x and 1.x share the V1 plugin shape.
+	return processedPlugin(program), true
 }
 
 func isV2Plugin(content []byte) bool {
@@ -78,8 +78,8 @@ func installedForVersion(content []byte, version string) bool {
 	if !bytes.Contains(content, []byte("invokeGryph")) {
 		return false
 	}
-	major := openCodeMajor(version)
-	if major == 0 {
+	major, ok := openCodeMajor(version)
+	if !ok {
 		return true
 	}
 	return isV2Plugin(content) == (major >= 2)
@@ -272,11 +272,12 @@ func GetHookStatus(ctx context.Context) (*agent.HookStatus, error) {
 		return status, nil
 	}
 
+	major, versionKnown := openCodeMajor(detection.Version)
 	var expected []byte
-	switch major := openCodeMajor(detection.Version); {
-	case major >= 2:
+	switch {
+	case versionKnown && major >= 2:
 		expected = processedPluginV2("")
-	case major == 1:
+	case versionKnown:
 		expected = processedPlugin("")
 	case isV2Plugin(data):
 		expected = processedPluginV2("")
@@ -287,7 +288,7 @@ func GetHookStatus(ctx context.Context) (*agent.HookStatus, error) {
 		func(hookType string) string { return `"` + hookType + `"` },
 		"plugin file differs from expected content (may need update)")
 
-	if openCodeMajor(detection.Version) == 0 {
+	if !versionKnown {
 		status.CompatibilityUnverified = true
 		if status.Valid {
 			status.Issues = append(status.Issues, "OpenCode version could not be detected; cannot verify plugin compatibility")
